@@ -38,6 +38,9 @@ instance:
 │   ├── ec2-create-ami.sh            Create an AMI of a running instance (all volumes); print the new AMI ID
 │   └── ec2-launch-from-ami.sh       Launch a new instance from an AMI, mirroring a source instance's config
 │
+├── mount/                           On-host EBS mount helpers (run on the new instance)
+│   └── mount-ebs-nonprod.sh         Mount the NONPROD data volumes by filesystem UUID; persist to fstab
+│
 └── rds/
     └── rds-clone.sh                 Snapshot an RDS instance and restore a mirror of it
 ```
@@ -317,6 +320,27 @@ anything.
 ```
 
 ---
+
+### `mount/mount-ebs-nonprod.sh`
+Run **on the new instance** (as root) after the cloned data volumes are
+attached. It mounts them **by filesystem UUID** — not device name — because on
+Nitro instances the `/dev/nvmeXn1` names are assigned at attach time and are not
+stable (on the source box `lsblk` and `df` already disagree on which NVMe device
+is which mount). UUIDs live in the filesystem, come across in the snapshot, and
+are identical on the clone, so they're the only reliable key.
+
+Workflow: `--discover` lists each unmounted volume's UUID/size/fstype → you copy
+those into the editable MOUNT TABLE at the top (matching by size to the right
+mount point) → `--plan` previews the mounts and fstab lines → run with no flag to
+create mount points, mount in parent-first order, and persist to `/etc/fstab`
+(backed up first). Idempotent and re-runnable; `--verify` checks current state.
+The prod equivalent is a separate script (prod's layout differs).
+
+```
+sudo ./mount-ebs-nonprod.sh --discover    # list UUIDs, fill the table
+sudo ./mount-ebs-nonprod.sh --plan        # preview
+sudo ./mount-ebs-nonprod.sh               # mount + write fstab
+```
 
 ## Conventions across the toolkit
 
