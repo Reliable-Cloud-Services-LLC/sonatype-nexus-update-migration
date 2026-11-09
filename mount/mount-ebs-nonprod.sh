@@ -14,11 +14,13 @@ set -uo pipefail
 #   reliable key. This script mounts and writes fstab by UUID.
 #
 # HOW TO USE (run as root on the NEW instance, after volumes are attached):
-#   1) Run with  --discover  to list every unmounted disk's UUID/size/fstype.
-#   2) Copy each UUID into the MOUNT TABLE below (match by size + your records).
-#   3) Run with  --plan      to preview exactly what will be mounted + fstab.
-#   4) Run (no flag) to mount everything and write /etc/fstab.
-#   5) Re-run any time; it is idempotent (skips what's already mounted).
+#   The MOUNT TABLE below is already filled with the nonprod source box's real
+#   UUIDs, so normally you just:
+#     - Run with  --plan   to preview what will be mounted + the fstab lines.
+#     - Run (no flag) to mount everything and write /etc/fstab.
+#   It is idempotent (skips what's already mounted). If a cloned volume ever
+#   reports a DIFFERENT UUID than the source (rare — UUIDs survive snapshots),
+#   run  --discover  to list the live UUIDs and update the matching row.
 #
 #   sudo ./mount-ebs-nonprod.sh --discover
 #   sudo ./mount-ebs-nonprod.sh --plan
@@ -39,22 +41,32 @@ set -uo pipefail
 #
 # Fill in the UUIDs from `--discover`. Sizes in comments are from the nonprod
 # source box to help you match each volume to its mount point.
+# UUIDs below are the NONPROD source box's actual values (from its /etc/fstab).
+# Filesystems are ext4 (the OS root/LVMs are xfs, but the data volumes are ext4).
+# If a clone ever shows a different UUID, run --discover and update the row.
 NONPROD_MOUNTS=(
-  # ~4.9T  /app                                              (root of the app tree — MOUNT FIRST)
-  "PUT-UUID-HERE | /app                                           | xfs | defaults,nofail"
+  # ~4.9T  /app  — root of the app tree, MOUNT FIRST (its children nest under it)
+  "6f12103f-1fcc-4083-a1d9-82e77d0d6a41 | /app                                    | ext4 | defaults,nofail"
 
   # ~24.4T /app/sonatype-work/nexus3/blobs/default
-  "PUT-UUID-HERE | /app/sonatype-work/nexus3/blobs/default        | xfs | defaults,nofail"
+  "cbf282b1-8963-417e-a496-2ab05ec608e9 | /app/sonatype-work/nexus3/blobs/default | ext4 | defaults,nofail"
 
   # ~14.7T /app/sonatype-work/nexus3/blobs/elis
-  "PUT-UUID-HERE | /app/sonatype-work/nexus3/blobs/elis           | xfs | defaults,nofail"
+  "b1d1ae7d-fd14-4b61-abf9-b59c902f1b91 | /app/sonatype-work/nexus3/blobs/elis    | ext4 | defaults,nofail"
 
-  # ~4.9T  /app/new-blob-store
-  "PUT-UUID-HERE | /app/new-blob-store                            | xfs | defaults,nofail"
+  # ~4.9T  /app/new-blob-store  (was commented out in the source fstab; enabled here per request)
+  "bb626aea-4d63-441a-8feb-deaea185e620 | /app/new-blob-store                     | ext4 | defaults,nofail"
 
   # ~250G  /for_storage
-  "PUT-UUID-HERE | /for_storage                                   | xfs | defaults,nofail"
+  "a250ce47-7361-4129-b2e4-c28bed7526d4 | /for_storage                            | ext4 | defaults,nofail"
 )
+# ---------------------------------------------------------------------------
+# NOTE on the source fstab (for the record): it listed /for_storage TWICE and
+# had a copy/paste error where UUID b1d1ae7d...91 appeared on BOTH the
+# /for_storage (rw,acl) line and the blobs/elis line. The correct mapping,
+# confirmed, is: /for_storage = a250ce47...d4, and b1d1ae7d...91 = blobs/elis
+# (above). /app and /app/new-blob-store are both ~4.9T but have distinct UUIDs,
+# so they will not be confused.
 # =============================================================================
 
 FSTAB="/etc/fstab"
