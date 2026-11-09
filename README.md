@@ -42,6 +42,127 @@ instance:
 
 ---
 
+## RHEL 8 → RHEL 9 upgrade — end-to-end order
+
+This is the full sequence for moving the Nexus host from RHEL 8 to RHEL 9. The
+whole thing runs against **isolated clones** of production data, so the live
+RHEL 8 instance keeps serving the entire time. Three separate concerns move in
+parallel and converge on the new host:
+
+- the **compute** (EC2 instance) → `ec2/ec2-clone.sh`
+- the **database** (external PostgreSQL RDS) → `rds/rds-clone.sh`
+- **Nexus itself** (install + config + validation) → `migration/*`
+
+> **Before you start — three facts to pin down.** (1) The exact Nexus version
+> the old box runs; the new box must install the *same* version (a newer binary
+> won't open an older database). (2) The data-volume mount path on the old box
+> (e.g. `/app/sonatype-work`); it must be identical on the new box or file blob
+> stores won't resolve. (3) Which AZ the source lives in; the clone stays in it.
+
+### Phase 0 — Capture a baseline (old box, prod stays live)
+Record what "good" looks like so you can prove parity later.
+
+```
+# repo inventory from the OLD Nexus, for a parity check after migration
+NEXUS_HOST_VALIDATE=<old-ip> NEXUS_ADMIN_PASS='***' \
+  migration/03-post-validate.sh --capture-baseline ./migration/.repo-baseline.txt
+```
+
+### Phase 1 — Pre-validate + snapshot data (old box, non-disruptive)
+Edit `migration/00-config.sh` first (all `<<< EDIT` markers), then:
+
+```
+migration/01-pre-validate.sh          # checks prereqs; snapshots prod EBS + RDS
+```
+
+This only reads prod and creates snapshots — nothing is detached or stopped.
+
+### Phase 2 — Clone the database (RDS)
+Stand up an isolated copy of the PostgreSQL RDS the new host will use. **Always
+dry-run first** to see the exact plan, then execute.
+
+```
+rds/rds-clone.sh --source <prod-rds-id> --target <clone-rds-id> \
+  --endpoint <prod-rds-endpoint> --dry-run
+rds/rds-clone.sh --source <prod-rds-id> --target <clone-rds-id> \
+  --endpoint <prod-rds-endpoint>
+```
+
+Note the clone's endpoint address from the output — it goes into
+`CLONE_RDS_HOST` in `migration/00-config.sh`. Make sure the clone RDS security
+group lets the new instance reach the DB port.
+
+### Phase 3 — Clone the compute (EC2 onto the RHEL 9 AMI)
+Launch the new RHEL 9 instance, mirroring the old box's type, key pair, SGs,
+subnet, IAM profile, and tags, with **snapshot-copies of the data volumes**
+attached at their original device names. The old RHEL 8 root is *not* cloned —
+the new instance boots from the RHEL 9 AMI. **Dry-run first.**
+
+```
+ec2/ec2-clone.sh --source <old-instance-id> --ami <rhel9-ami-id> \
+  --name <new-name-tag> --dry-run
+ec2/ec2-clone.sh --source <old-instance-id> --ami <rhel9-ami-id> \
+  --name <new-name-tag>
+```
+
+Put the resulting instance id in `NEW_INSTANCE_ID` in `migration/00-config.sh`.
+
+### Phase 4 — Provision & configure Nexus (on the new RHEL 9 box, as root)
+`migration/02-provision-configure.sh` runs in stages. The data volumes are
+already attached by Phase 3, so here you mount them and install Nexus pointed at
+the cloned RDS.
+
+```
+export CLONE_RDS_PASSWORD='***'
+sudo -E migration/02-provision-configure.sh host-prep        # pkgs, user, SELinux, firewall
+sudo    migration/02-provision-configure.sh host-mount       # guided mount of data volume(s)
+sudo    migration/02-provision-configure.sh host-mount-verify
+sudo    migration/02-provision-configure.sh host-install     # pinned Nexus version
+sudo -E migration/02-provision-configure.sh host-configure   # nexus-store.properties -> clone RDS
+sudo    migration/02-provision-configure.sh host-service     # systemd unit + start
+```
+
+Mount the data volume(s) at the **same path** the old box used, by UUID. Watch
+`tail -f <data-dir>/log/nexus.log` for the first-start rebuild tasks to finish.
+
+> The `aws-*` stages of `02-provision-configure.sh` (restore RDS, create/attach
+> volumes) overlap with what `rds-clone.sh` and `ec2-clone.sh` do. Use the
+> standalone clone scripts for the clone itself (they capture far more of the
+> source config and dry-run the plan); use `02`'s `host-*` stages for the
+> on-box install and configuration.
+
+### Phase 5 — Validate the clone (parity gate)
+Prove the migrated instance matches the old one before trusting it.
+
+```
+NEXUS_ADMIN_PASS='***' migration/03-post-validate.sh \
+  --baseline ./migration/.repo-baseline.txt
+NEXUS_HOST=<new-ip> NEXUS_PASS='***' migration/nexus-post-upgrade-validate.sh
+```
+
+Must pass: PostgreSQL bound (not H2 fallback), repo list matches the baseline,
+blob stores report content, and the format pulls/pushes succeed.
+
+### Phase 6 — Cutover (separate, deliberate window)
+The steps above build and validate a **parallel clone**. The real production
+cutover is its own short window: stop old Nexus → take fresh RDS + EBS snapshots
+(or re-point to the real data) → bring up the RHEL 9 box on the **real** data →
+move the Elastic IP so clients need no change → keep the old instance **stopped,
+not terminated**, as rollback. See `migration/README.md` for the cutover detail
+and the two-writers safety rule (never point two Nexus instances at one RDS).
+
+### At a glance
+
+| Phase | Script | Runs on | Touches prod? |
+|-------|--------|---------|---------------|
+| 0 Baseline | `migration/03-post-validate.sh --capture-baseline` | workstation | read-only |
+| 1 Pre-validate | `migration/01-pre-validate.sh` | workstation | snapshots only |
+| 2 Clone RDS | `rds/rds-clone.sh` | workstation | snapshot only |
+| 3 Clone EC2 | `ec2/ec2-clone.sh` | workstation | snapshots only |
+| 4 Provision | `migration/02-provision-configure.sh host-*` | new RHEL 9 box | no |
+| 5 Validate | `migration/03-post-validate.sh` | new box / workstation | no |
+| 6 Cutover | manual + `migration/README.md` | both | yes (planned) |
+
 ## What each script is for
 
 ### `upgrade/nexus-upgrade-rollback.sh`
