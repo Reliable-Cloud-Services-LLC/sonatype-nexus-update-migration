@@ -28,10 +28,12 @@ set -uo pipefail
 #   --source <SOURCE_INSTANCE_ID>   The existing instance, e.g. i-0abc123...
 #   --ami    <NEW_AMI_ID>           The AMI to boot the clone from (RHEL 9),
 #                                   e.g. ami-0rhel9...
+#   --name   <NAME_TAG>             Name tag for the NEW instance. Required and
+#                                   must differ from the source's Name, so the
+#                                   clone is always named deliberately (mirrors
+#                                   the RDS clone's explicit --target).
 #
 # OPTIONAL:
-#   --name   <NAME_TAG>             Value for the new instance's Name tag.
-#                                   Default: "<source Name>-rhel9-clone".
 #   --private-ip <IP>               Specific private IP in the subnet (else auto).
 #   --region  <REGION>  --profile <PROFILE>   Default to env / CLI config.
 #   --dry-run                       PLAN ONLY (terraform-plan style): describe +
@@ -85,6 +87,7 @@ done
 
 [[ -n "$SOURCE_ID" ]] || die "Missing --source <SOURCE_INSTANCE_ID>"
 [[ -n "$NEW_AMI"   ]] || die "Missing --ami <NEW_AMI_ID> (the RHEL 9 image)"
+[[ -n "$NAME_TAG"  ]] || die "Missing --name <NAME_TAG> (the Name for the new instance)"
 
 command -v aws >/dev/null 2>&1 || die "aws CLI not found"
 command -v jq  >/dev/null 2>&1 || die "jq not found"
@@ -129,7 +132,11 @@ DATA_VOLS="$(echo "$SRC" | jq -r --arg root "$SRC_ROOT_DEVICE" '
 
 [[ -n "$DATA_VOLS" ]] || log "NOTE: source has no non-root data volumes. Only the root (from the new AMI) will exist on the clone."
 
-[[ -z "$NAME_TAG" ]] && NAME_TAG="${SRC_NAME:-nexus}-rhel9-clone"
+# --name is required (checked above). Guard against reusing the source's Name,
+# so the clone is distinguishable from the source.
+if [[ -n "$SRC_NAME" && "$NAME_TAG" == "$SRC_NAME" ]]; then
+  die "--name '${NAME_TAG}' equals the source's Name tag. Choose a different name for the clone."
+fi
 
 # ---------------------------- plan printout ---------------------------------
 cat <<EOF
