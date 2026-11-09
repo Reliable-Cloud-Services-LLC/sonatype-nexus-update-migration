@@ -155,38 +155,49 @@ blob stores report content, and the format pulls/pushes succeed.
 
 ### Phase 6 — Cutover (blue → green, at the load balancer)
 Phases 0–5 produced a validated green instance running **off** the load
-balancer against the cloned database. Cutover is its own short, deliberate
-window. The ordering matters because production Nexus must have exactly **one**
-writer against the real RDS — green cannot both serve production traffic and
-point at the clone DB.
+balancer against a cloned database. Cutover is its own short, deliberate window.
 
-1. **Freeze blue.** Announce a brief maintenance window; stop pushes/pulls or
-   accept that in-flight writes during the window won't carry over.
+Green was validated against a clone taken at an earlier point in time, but blue
+kept serving after that clone was made — so those later writes must be captured
+at cutover. The mechanism is a **final shutdown + snapshot of blue**, from which
+green is refreshed before it goes live. Throughout, each instance talks only to
+its own database — the two never share one.
+
+1. **Freeze blue.** Announce a brief maintenance window; stop clients pushing/
+   pulling. Any writes after this point won't exist until green is up.
 2. **Quiesce blue.** Stop the Nexus service on blue (optionally set it
-   read-only first) so nothing writes the real RDS during the switch.
-3. **Point green at the real data.** Repoint green's
-   `nexus-store.properties` from the clone RDS to the **production** RDS, and
-   (if blob stores are on EBS) attach/mount the **real** blob volumes rather
-   than the snapshot copies — or take one final fresh snapshot after blue is
-   stopped so green starts from the exact last state. Start Nexus on green and
-   confirm from the log it bound to the production PostgreSQL (not H2, not the
-   clone).
-4. **Validate green in place**, still out of rotation, against production data
-   (`migration/03-post-validate.sh`, format pulls/pushes).
-5. **Swap the load balancer target group:** register green, wait for it to pass
+   read-only first). Blue is now fully stopped — nothing is writing the
+   production RDS or blob stores.
+3. **Take the final snapshot.** With blue stopped, snapshot the **production
+   RDS** (`rds/rds-clone.sh` against prod) and the **blob EBS volumes**
+   (`ec2/ec2-clone.sh` already does this, or snapshot directly). This captures
+   the exact last state, including everything written since the Phase-2/3
+   clone. Nothing is lost.
+4. **Refresh green from that final snapshot.** Restore a fresh DB clone and
+   fresh blob volumes from the step-3 snapshots, repoint green's
+   `nexus-store.properties` at that fresh clone, and (re)mount the fresh blob
+   volumes at the original paths. Start Nexus on green and confirm from the log
+   it bound to PostgreSQL (not H2) with the full, current catalog.
+5. **Validate green in place**, still out of rotation
+   (`migration/03-post-validate.sh` against the baseline, plus format pulls/
+   pushes). The repo count should now match blue's last state exactly.
+6. **Swap the load balancer target group:** register green, wait for it to pass
    the LB health check as *healthy*, then deregister blue (let it **drain** so
    in-flight connections finish). Green is now live.
-6. **Hold blue as rollback.** Leave blue **stopped, not terminated**, for a
+7. **Hold blue as rollback.** Leave blue **stopped, not terminated**, for a
    defined window. Rollback = deregister green, re-register blue, start its
-   Nexus — a target-group swap, not a rebuild.
+   Nexus — a target-group swap, not a rebuild. (Note: writes made to green
+   after cutover won't be on blue, so a rollback after real traffic has landed
+   means accepting that delta — keep the rollback window short.)
 
-> **Two-writers rule (critical).** Never let blue and green both run Nexus
-> against the production RDS at the same time — two writers corrupt state. Blue
-> is fully stopped (step 2) before green points at production (step 3). While
-> green is validated in Phases 0–5 it uses the **clone** RDS precisely so both
-> can run at once safely.
+> **Single-writer rule (critical).** The two instances never talk to the same
+> database. Green runs on a **clone** throughout — the Phase 0–5 clone first,
+> then the fresh step-4 clone made from blue's final snapshot. Blue is fully
+> stopped (step 2) before that final snapshot is taken (step 3), so there is no
+> moment where blue and green both write production data. Two writers against
+> one RDS corrupt state.
 
-See `migration/README.md` for the configuration detail behind steps 3–4.
+See `migration/README.md` for the configuration detail behind steps 3–5.
 
 ### At a glance
 
