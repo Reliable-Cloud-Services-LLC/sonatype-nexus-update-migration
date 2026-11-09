@@ -18,10 +18,27 @@ set -uo pipefail
 #   host-configure      write nexus-store.properties (CLONE RDS), store config
 #   host-service        systemd unit, start Nexus
 #
-# Usage:  source ./00-config.sh is automatic.
-#   ./02-provision-configure.sh <stage>
-#   ./02-provision-configure.sh all-aws     # the three aws-* stages
-#   ./02-provision-configure.sh all-host    # the host-* stages (run on RHEL 9)
+# Sources ./00-config.sh automatically.
+#
+# -------------------------- SAMPLE COMMANDS ---------------------------------
+# On a workstation with AWS CLI (build the isolated clone infrastructure):
+#   ./02-provision-configure.sh aws-restore-rds       # restore CLONE RDS from prod snapshot
+#   ./02-provision-configure.sh aws-create-volumes    # clone EBS volumes in NEW_AZ
+#   ./02-provision-configure.sh aws-attach-volumes    # attach them to NEW_INSTANCE_ID
+#   # ...or all three at once:
+#   ./02-provision-configure.sh all-aws
+#
+# On the NEW RHEL 9 box, as root (install + configure Nexus on the clone):
+#   export CLONE_RDS_PASSWORD='the-clone-db-password'
+#   sudo -E ./02-provision-configure.sh host-prep
+#   sudo    ./02-provision-configure.sh host-mount          # guided; then:
+#   sudo    ./02-provision-configure.sh host-mount-verify
+#   sudo    ./02-provision-configure.sh host-install
+#   sudo -E ./02-provision-configure.sh host-configure      # needs CLONE_RDS_PASSWORD
+#   sudo    ./02-provision-configure.sh host-service
+#
+# See every stage:
+#   ./02-provision-configure.sh --help
 # =============================================================================
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

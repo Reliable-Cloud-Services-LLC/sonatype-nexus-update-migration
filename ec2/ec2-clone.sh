@@ -23,6 +23,26 @@ set -uo pipefail
 #
 # Requirements: awscli v2 configured locally, jq.
 #
+# -------------------------- SAMPLE COMMANDS ---------------------------------
+# Preview the plan first (creates nothing — like `terraform plan`):
+#   ./ec2-clone.sh \
+#       --source i-0abc123def456  \
+#       --ami    ami-0rhel9xxxxxxxx  \
+#       --name   nexus-rhel9-prod  \
+#       --region us-east-1  --profile my-aws-profile  --dry-run
+#
+# Execute the clone (snapshot data vols, launch RHEL 9, attach, verify):
+#   ./ec2-clone.sh \
+#       --source i-0abc123def456  \
+#       --ami    ami-0rhel9xxxxxxxx  \
+#       --name   nexus-rhel9-prod  \
+#       --region us-east-1  --profile my-aws-profile
+#
+# Launch without waiting on 2/2 status checks:
+#   ./ec2-clone.sh --source i-0abc123def456 --ami ami-0rhel9xxxxxxxx \
+#       --name nexus-rhel9-prod --no-wait
+# ----------------------------------------------------------------------------
+#
 # -------------------------- INPUTS YOU PROVIDE -------------------------------
 # REQUIRED:
 #   --source <SOURCE_INSTANCE_ID>   The existing instance, e.g. i-0abc123...

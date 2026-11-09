@@ -10,9 +10,19 @@ set -uo pipefail
 #   - blob stores are present and report usage (data actually mounted)
 #   - a sample read from each configured format
 #
-#   ./03-post-validate.sh                    # all checks
-#   ./03-post-validate.sh --baseline FILE    # compare repo list to a saved baseline
-#   ./03-post-validate.sh --capture-baseline # save current repo list (run against OLD box)
+# Sources ./00-config.sh automatically.
+#
+# -------------------------- SAMPLE COMMANDS ---------------------------------
+# 1) FIRST, from the OLD box — capture a repo baseline to compare against later:
+#   NEXUS_HOST_VALIDATE=10.0.5.10 NEXUS_ADMIN_PASS='admin-password' \
+#     ./03-post-validate.sh --capture-baseline ./.repo-baseline.txt
+#
+# 2) After migration, on/near the NEW box — validate and compare to the baseline:
+#   NEXUS_ADMIN_PASS='admin-password' \
+#     ./03-post-validate.sh --baseline ./.repo-baseline.txt
+#
+# All checks without a baseline comparison (reach a remote host):
+#   NEXUS_HOST_VALIDATE=10.0.5.20 NEXUS_ADMIN_PASS='admin-password' ./03-post-validate.sh
 # =============================================================================
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

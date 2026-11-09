@@ -16,6 +16,25 @@ set -uo pipefail
 #
 # Requirements: awscli v2 configured locally, jq.
 #
+# -------------------------- SAMPLE COMMANDS ---------------------------------
+# Preview the plan first (creates nothing — like `terraform plan`):
+#   ./rds-clone.sh \
+#       --source   nexus-prod  \
+#       --target   nexus-clone-rhel9  \
+#       --endpoint nexus-prod.abc123.us-east-1.rds.amazonaws.com  \
+#       --region   us-east-1  --profile my-aws-profile  --dry-run
+#
+# Execute the clone (fresh snapshot -> restore mirror -> verify parity):
+#   ./rds-clone.sh \
+#       --source   nexus-prod  \
+#       --target   nexus-clone-rhel9  \
+#       --endpoint nexus-prod.abc123.us-east-1.rds.amazonaws.com  \
+#       --region   us-east-1  --profile my-aws-profile
+#
+# Minimal form (no endpoint guard, default region/profile from your AWS config):
+#   ./rds-clone.sh --source nexus-prod --target nexus-clone-rhel9
+# ----------------------------------------------------------------------------
+#
 # -------------------------- INPUTS YOU PROVIDE -------------------------------
 # REQUIRED:
 #   --source   <SOURCE_DB_IDENTIFIER>   The existing RDS instance identifier

@@ -19,6 +19,22 @@ set -euo pipefail
 # Upgrade: downloads + stages new Nexus, copies configs, promotes to /app/nexus,
 #          updates Jetty maxThreads, fixes keystore filename + passwords, starts service
 # Rollback: restores the most recent backup of the prior version back to /app/nexus
+#
+# -------------------------- SAMPLE COMMANDS ---------------------------------
+# Run as root on the Nexus host. Use FULL version strings (with the -NN build
+# suffix) exactly as they appear in the tarball name.
+#
+# Upgrade in place (from the running version to a new one):
+#   sudo ./nexus-upgrade-rollback.sh upgrade  --from 3.89.0-09 --to 3.94.0-12
+#
+# Roll back to the previous version (restores the backup the upgrade made):
+#   sudo ./nexus-upgrade-rollback.sh rollback --restore 3.89.0-09 --current 3.94.0-12
+#
+# Show full usage / notes:
+#   ./nexus-upgrade-rollback.sh --help
+#
+# ALWAYS take a database/blob backup BEFORE upgrading — a data-dir downgrade is
+# not supported, so rollback only restores the install directory.
 # -----------------------------------------------------------------------------
 
 BASE_DIR="/app"

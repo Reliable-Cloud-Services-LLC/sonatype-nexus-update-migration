@@ -6,9 +6,16 @@ set -uo pipefail
 #
 # Safe to run while prod Nexus is up: it only reads prod and creates snapshots.
 #
-#   source ./00-config.sh is done automatically below.
-#   ./01-pre-validate.sh            # checks + create snapshots
-#   ./01-pre-validate.sh --check    # checks only, no snapshots
+# Sources ./00-config.sh automatically — edit that file's <<< EDIT markers first.
+#
+# -------------------------- SAMPLE COMMANDS ---------------------------------
+# 1) Edit migration/00-config.sh (NEW_AZ, PROD_RDS_INSTANCE_ID, BLOB_VOLUMES, ...).
+#
+# Checks only, no snapshots (dry sanity pass):
+#   ./01-pre-validate.sh --check
+#
+# Full pre-validation + create prod EBS/RDS snapshots (non-disruptive):
+#   ./01-pre-validate.sh
 # =============================================================================
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -26,12 +26,20 @@ set -uo pipefail
 #       "insecure-registries": ["TEST_HOST:8082", "TEST_HOST:8083"]
 #   then Apply & Restart. This script detects the failure mode and reminds you.
 #
-# Usage:
+# -------------------------- SAMPLE COMMANDS ---------------------------------
 #   chmod +x nexus-post-upgrade-validate.sh
-#   ./nexus-post-upgrade-validate.sh                 # run all configured checks
-#   ./nexus-post-upgrade-validate.sh --only docker   # run one section
-#   ./nexus-post-upgrade-validate.sh --list          # list section names
-#   NEXUS_PASS='secret' ./nexus-post-upgrade-validate.sh   # avoid hardcoding pw
+#
+# Run every configured check against a remote Nexus (pass password via env):
+#   NEXUS_HOST=10.0.5.20 NEXUS_PASS='admin-password' ./nexus-post-upgrade-validate.sh
+#
+# Run just one format section:
+#   NEXUS_HOST=10.0.5.20 NEXUS_PASS='admin-password' ./nexus-post-upgrade-validate.sh --only docker
+#
+# List the section names you can pass to --only:
+#   ./nexus-post-upgrade-validate.sh --list
+#
+# (Edit the CONFIG block below for host/ports/repos; NEXUS_HOST and NEXUS_PASS
+#  can also be set there instead of on the command line.)
 # =============================================================================
 
 
