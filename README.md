@@ -44,14 +44,24 @@ instance:
 
 ## RHEL 8 → RHEL 9 upgrade — end-to-end order
 
-This is the full sequence for moving the Nexus host from RHEL 8 to RHEL 9. The
-whole thing runs against **isolated clones** of production data, so the live
-RHEL 8 instance keeps serving the entire time. Three separate concerns move in
-parallel and converge on the new host:
+This follows a **blue/green deployment** pattern (as recommended by Sonatype):
+
+- **Blue** = the current RHEL 8 instance, live behind the load balancer the whole time.
+- **Green** = a new RHEL 9 instance, built and validated entirely **out of
+  rotation** (not registered with the load balancer).
+
+Only once green passes validation do we swap it into the load balancer's target
+group and drain blue out — and blue stays stopped-but-intact afterward, so
+rollback is a target-group swap back, not a rebuild.
+
+The build-and-validate phases run against **isolated clones** of production
+data, so blue keeps serving uninterrupted. Three concerns converge on green:
 
 - the **compute** (EC2 instance) → `ec2/ec2-clone.sh`
 - the **database** (external PostgreSQL RDS) → `rds/rds-clone.sh`
 - **Nexus itself** (install + config + validation) → `migration/*`
+
+Phases 0–5 build and prove green off the load balancer; Phase 6 is the cutover.
 
 > **Before you start — three facts to pin down.** (1) The exact Nexus version
 > the old box runs; the new box must install the *same* version (a newer binary
@@ -143,13 +153,40 @@ NEXUS_HOST=<new-ip> NEXUS_PASS='***' migration/nexus-post-upgrade-validate.sh
 Must pass: PostgreSQL bound (not H2 fallback), repo list matches the baseline,
 blob stores report content, and the format pulls/pushes succeed.
 
-### Phase 6 — Cutover (separate, deliberate window)
-The steps above build and validate a **parallel clone**. The real production
-cutover is its own short window: stop old Nexus → take fresh RDS + EBS snapshots
-(or re-point to the real data) → bring up the RHEL 9 box on the **real** data →
-move the Elastic IP so clients need no change → keep the old instance **stopped,
-not terminated**, as rollback. See `migration/README.md` for the cutover detail
-and the two-writers safety rule (never point two Nexus instances at one RDS).
+### Phase 6 — Cutover (blue → green, at the load balancer)
+Phases 0–5 produced a validated green instance running **off** the load
+balancer against the cloned database. Cutover is its own short, deliberate
+window. The ordering matters because production Nexus must have exactly **one**
+writer against the real RDS — green cannot both serve production traffic and
+point at the clone DB.
+
+1. **Freeze blue.** Announce a brief maintenance window; stop pushes/pulls or
+   accept that in-flight writes during the window won't carry over.
+2. **Quiesce blue.** Stop the Nexus service on blue (optionally set it
+   read-only first) so nothing writes the real RDS during the switch.
+3. **Point green at the real data.** Repoint green's
+   `nexus-store.properties` from the clone RDS to the **production** RDS, and
+   (if blob stores are on EBS) attach/mount the **real** blob volumes rather
+   than the snapshot copies — or take one final fresh snapshot after blue is
+   stopped so green starts from the exact last state. Start Nexus on green and
+   confirm from the log it bound to the production PostgreSQL (not H2, not the
+   clone).
+4. **Validate green in place**, still out of rotation, against production data
+   (`migration/03-post-validate.sh`, format pulls/pushes).
+5. **Swap the load balancer target group:** register green, wait for it to pass
+   the LB health check as *healthy*, then deregister blue (let it **drain** so
+   in-flight connections finish). Green is now live.
+6. **Hold blue as rollback.** Leave blue **stopped, not terminated**, for a
+   defined window. Rollback = deregister green, re-register blue, start its
+   Nexus — a target-group swap, not a rebuild.
+
+> **Two-writers rule (critical).** Never let blue and green both run Nexus
+> against the production RDS at the same time — two writers corrupt state. Blue
+> is fully stopped (step 2) before green points at production (step 3). While
+> green is validated in Phases 0–5 it uses the **clone** RDS precisely so both
+> can run at once safely.
+
+See `migration/README.md` for the configuration detail behind steps 3–4.
 
 ### At a glance
 
@@ -161,7 +198,7 @@ and the two-writers safety rule (never point two Nexus instances at one RDS).
 | 3 Clone EC2 | `ec2/ec2-clone.sh` | workstation | snapshots only |
 | 4 Provision | `migration/02-provision-configure.sh host-*` | new RHEL 9 box | no |
 | 5 Validate | `migration/03-post-validate.sh` | new box / workstation | no |
-| 6 Cutover | manual + `migration/README.md` | both | yes (planned) |
+| 6 Cutover (blue→green at LB) | manual + `migration/README.md` | both | yes (planned) |
 
 ## What each script is for
 
