@@ -34,7 +34,9 @@ instance:
 │   └── nexus-post-upgrade-validate.sh   Format validator (shared copy; stage 5 delegates to it)
 │
 ├── ec2/
-│   └── ec2-clone.sh                 Clone an EC2 instance onto a new AMI, reusing config + data-volume snapshots
+│   ├── ec2-clone.sh                 Clone an EC2 instance onto a new AMI, reusing config + data-volume snapshots
+│   ├── ec2-create-ami.sh            Create an AMI of a running instance (all volumes); print the new AMI ID
+│   └── ec2-launch-from-ami.sh       Launch a new instance from an AMI, mirroring a source instance's config
 │
 └── rds/
     └── rds-clone.sh                 Snapshot an RDS instance and restore a mirror of it
@@ -270,6 +272,34 @@ volumes on the new host (by UUID, at their original paths) is a separate step.
 ```
 ./ec2-clone.sh --source i-0abc123 --ami ami-0rhel9 --dry-run
 ./ec2-clone.sh --source i-0abc123 --ami ami-0rhel9
+```
+
+### `ec2/ec2-create-ami.sh`
+Creates an **AMI** from a running instance, capturing the instance and **all
+attached EBS volumes** in one call, waits until the AMI is `available`, and
+prints the new AMI ID (`NEW_AMI_ID=ami-…`). Defaults to **`--no-reboot`** so a
+running instance is never disrupted (crash-consistent image); pass `--reboot`
+only if you want a fully filesystem-consistent image and can accept the reboot.
+Has a `--dry-run`. Standalone — useful for backups/golden images, not just the
+upgrade.
+
+```
+./ec2-create-ami.sh --source i-0abc123 --dry-run
+./ec2-create-ami.sh --source i-0abc123            # no reboot; prints NEW_AMI_ID
+```
+
+### `ec2/ec2-launch-from-ami.sh`
+Launches a **new instance from an AMI**, mirroring an existing instance's
+configuration — same AZ, instance type, key pair, security groups, subnet, IAM
+instance profile, EBS-optimized flag, and tags — with a **required new Name** so
+it doesn't conflict with the source. The AMI already carries the volumes, so
+this script reproduces only the instance-level config an AMI doesn't hold (read
+from `--source`). Rejects a `--name` equal to the source's. Has a `--dry-run`
+and a parity check. Pairs naturally with `ec2-create-ami.sh`.
+
+```
+./ec2-launch-from-ami.sh --ami ami-0new --source i-0abc123 --name nexus-restored --dry-run
+./ec2-launch-from-ami.sh --ami ami-0new --source i-0abc123 --name nexus-restored
 ```
 
 ### `rds/rds-clone.sh`
