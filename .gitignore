@@ -1,0 +1,10 @@
+# Runtime state written by migration scripts (environment-specific, not source)
+migration/.snapshots-ebs.txt
+migration/.snapshot-rds.txt
+migration/.clone-volumes.txt
+migration/.clone-rds-host.txt
+migration/.repo-baseline.txt
+
+# Local editor / OS noise
+.DS_Store
+*.swp
