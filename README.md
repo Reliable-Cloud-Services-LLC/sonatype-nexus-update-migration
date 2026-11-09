@@ -33,6 +33,9 @@ instance:
 │   ├── 03-post-validate.sh          DB-binding, repo parity, blob-store, format checks
 │   └── nexus-post-upgrade-validate.sh   Format validator (shared copy; stage 5 delegates to it)
 │
+├── ec2/
+│   └── ec2-clone.sh                 Clone an EC2 instance onto a new AMI, reusing config + data-volume snapshots
+│
 └── rds/
     └── rds-clone.sh                 Snapshot an RDS instance and restore a mirror of it
 ```
@@ -83,6 +86,22 @@ stays up and untouched. Pins the **same Nexus version** as the old box — a new
 binary refuses to start against an older database. Full run order, the
 two-writers safety rule, and the real-cutover pattern are in
 [`migration/README.md`](migration/README.md).
+
+### `ec2/ec2-clone.sh`
+Clones an existing EC2 instance onto a **new AMI** (the RHEL 9 image you pass),
+reusing the source's configuration without touching the source. It describes the
+source, snapshots only its **data** volumes (never the root — the new AMI
+supplies that), creates new volumes from those snapshots in the same AZ, launches
+a mirror instance (same type, key pair, security groups, subnet, IAM profile,
+tags, EBS-optimized flag), attaches the cloned volumes at their original device
+names, waits for 2/2 status checks, and verifies parity. Has a **`--dry-run`**
+that prints the exact AWS commands (like `terraform plan`). Mounting the data
+volumes on the new host (by UUID, at their original paths) is a separate step.
+
+```
+./ec2-clone.sh --source i-0abc123 --ami ami-0rhel9 --dry-run
+./ec2-clone.sh --source i-0abc123 --ami ami-0rhel9
+```
 
 ### `rds/rds-clone.sh`
 Clones an existing RDS instance: describes the source, captures everything the
